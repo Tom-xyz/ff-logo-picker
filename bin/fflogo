@@ -77,7 +77,11 @@ ensure_config() {
 JSON
 }
 
-# Rewrite "source" and "type" in the existing config.
+# Rewrite "source" and "type" in the existing config — but ONLY inside the
+# top-level "logo": { ... } block. A naïve global sed would clobber the
+# "type" field of every module too. We use awk to track the in-logo state
+# from the "logo": { line until the next top-level key ("modules", "display",
+# "general", etc.) and only substitute within that range.
 apply_logo() {
   local name="$1"
   ensure_config
@@ -85,12 +89,19 @@ apply_logo() {
     err "no \"source\" field found in $CONFIG; refusing to modify"
     exit 1
   fi
-  # -i.bak works on both BSD (macOS) and GNU sed
-  sed -i.bak \
-    -e "s|\"source\":[[:space:]]*\"[^\"]*\"|\"source\": \"$name\"|" \
-    -e "s|\"type\":[[:space:]]*\"[^\"]*\"|\"type\": \"builtin\"|" \
-    "$CONFIG"
-  rm -f "$CONFIG.bak"
+  local tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/fflogo.XXXXXX")
+  awk -v src="$name" '
+    /^[[:space:]]*"(modules|display|general|modulesPreset)":/ { in_logo = 0 }
+    in_logo && /"source":/ {
+      sub(/"source":[[:space:]]*"[^"]*"/, "\"source\": \"" src "\"")
+    }
+    in_logo && /"type":/ {
+      sub(/"type":[[:space:]]*"[^"]*"/, "\"type\": \"builtin\"")
+    }
+    /^[[:space:]]*"logo":[[:space:]]*\{/ { in_logo = 1 }
+    { print }
+  ' "$CONFIG" > "$tmp" && mv "$tmp" "$CONFIG"
 }
 
 pick_with_fzf() {

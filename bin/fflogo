@@ -59,7 +59,8 @@ ensure_config() {
   "logo": {
     "source": "Apple",
     "type": "builtin",
-    "padding": { "right": 3 }
+    "position": "top",
+    "padding": { "right": 5 }
   },
   "modules": [
     "title",

@@ -93,12 +93,26 @@ apply_logo() {
   rm -f "$CONFIG.bak"
 }
 
+_fflogo_preview_color() {
+  fastfetch --logo "$1" --logo-type builtin 2>/dev/null
+}
+
+_fflogo_preview_mono() {
+  # Strip ANSI color codes from fastfetch output so the logo renders B/W.
+  # $'\x1b' inserts a literal ESC; sed sees ESC\[[0-9;]*m and removes it.
+  fastfetch --logo "$1" --logo-type builtin 2>/dev/null \
+    | sed $'s/\x1b\\[[0-9;]*m//g'
+}
+export -f _fflogo_preview_color _fflogo_preview_mono
+
 pick_with_fzf() {
   list_logos \
     | fzf --ansi \
-          --preview "fastfetch --logo {} --logo-type builtin 2>/dev/null" \
+          --preview '_fflogo_preview_color {}' \
           --preview-window=right:65%:wrap \
-          --header "ENTER applies — ESC cancels"
+          --bind 'ctrl-t:change-preview(_fflogo_preview_mono {})' \
+          --bind 'ctrl-r:change-preview(_fflogo_preview_color {})' \
+          --header 'ENTER apply  ·  ESC cancel  ·  ctrl-t mono  ·  ctrl-r color'
 }
 
 main() {

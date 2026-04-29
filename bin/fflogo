@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# fflogo — interactive picker for fastfetch's built-in ASCII logos
+#
+# Source:  https://github.com/tom-xyz/ff-logo-picker
+# License: MIT
+
+set -euo pipefail
+
+VERSION="0.1.0"
+CONFIG="${FFLOGO_CONFIG:-$HOME/.config/fastfetch/config.jsonc}"
+
+usage() {
+  cat <<'EOF'
+fflogo — interactive picker for fastfetch ASCII logos
+
+USAGE
+  fflogo [OPTIONS]
+
+OPTIONS
+  -p, --print       Print the chosen logo name; do not modify config
+  -r, --random      Skip the picker; pick a random logo and apply
+  -h, --help        Show this help
+  -V, --version     Show version
+
+ENVIRONMENT
+  FFLOGO_CONFIG     Override fastfetch config path
+                    (default: ~/.config/fastfetch/config.jsonc)
+
+Source: https://github.com/tom-xyz/ff-logo-picker
+EOF
+}
+
+err() { printf 'fflogo: %s\n' "$*" >&2; }
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    err "$1 not found. install with: brew install $1"
+    exit 1
+  fi
+}
+
+# Pulls the canonical name of every built-in logo from the installed fastfetch.
+# Output format of `fastfetch --list-logos`:
+#   1)  "Adélie" "Adelie"
+#   2)  "aerOS"
+# Pick the first quoted token per line.
+list_logos() {
+  fastfetch --list-logos 2>/dev/null \
+    | sed -nE 's/^[[:space:]]*[0-9]+\)[[:space:]]*"([^"]+)".*/\1/p'
+}
+
+# Create a minimal fastfetch config if the user has none.
+ensure_config() {
+  [[ -f "$CONFIG" ]] && return
+  mkdir -p "$(dirname "$CONFIG")"
+  cat >"$CONFIG" <<'JSON'
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "source": "Apple",
+    "type": "builtin",
+    "padding": { "right": 3 }
+  },
+  "modules": [
+    "title",
+    "separator",
+    { "type": "os",     "key": " os",     "keyColor": "cyan" },
+    { "type": "host",   "key": " host",   "keyColor": "cyan" },
+    { "type": "kernel", "key": " kernel", "keyColor": "cyan" },
+    { "type": "uptime", "key": " uptime", "keyColor": "cyan" },
+    { "type": "shell",  "key": " shell",  "keyColor": "cyan" },
+    { "type": "cpu",    "key": " cpu",    "keyColor": "cyan" },
+    { "type": "memory", "key": " memory", "keyColor": "cyan" },
+    { "type": "disk",   "key": " disk",   "keyColor": "cyan", "folders": "/" }
+  ]
+}
+JSON
+}
+
+# Rewrite "source" and "type" in the existing config.
+apply_logo() {
+  local name="$1"
+  ensure_config
+  if ! grep -q '"source"' "$CONFIG"; then
+    err "no \"source\" field found in $CONFIG; refusing to modify"
+    exit 1
+  fi
+  # -i.bak works on both BSD (macOS) and GNU sed
+  sed -i.bak \
+    -e "s|\"source\":[[:space:]]*\"[^\"]*\"|\"source\": \"$name\"|" \
+    -e "s|\"type\":[[:space:]]*\"[^\"]*\"|\"type\": \"builtin\"|" \
+    "$CONFIG"
+  rm -f "$CONFIG.bak"
+}
+
+pick_with_fzf() {
+  list_logos \
+    | fzf --ansi \
+          --preview "fastfetch --logo {} --logo-type builtin 2>/dev/null" \
+          --preview-window=right:65%:wrap \
+          --header "ENTER applies — ESC cancels"
+}
+
+main() {
+  local mode=interactive
+  while (($#)); do
+    case "$1" in
+      -p|--print)   mode=print ;;
+      -r|--random)  mode=random ;;
+      -h|--help)    usage; exit 0 ;;
+      -V|--version) printf 'fflogo %s\n' "$VERSION"; exit 0 ;;
+      *) err "unknown option: $1"; usage >&2; exit 1 ;;
+    esac
+    shift
+  done
+
+  require_cmd fastfetch
+  [[ "$mode" != random ]] && require_cmd fzf
+
+  local picked=""
+  case "$mode" in
+    interactive|print)
+      picked=$(pick_with_fzf) || true
+      ;;
+    random)
+      picked=$(list_logos \
+        | awk 'BEGIN{srand()} {a[NR]=$0} END{if(NR>0)print a[int(rand()*NR)+1]}')
+      ;;
+  esac
+
+  [[ -z "$picked" ]] && exit 0
+
+  if [[ "$mode" == print ]]; then
+    printf '%s\n' "$picked"
+  else
+    apply_logo "$picked"
+    err "applied: $picked"
+    fastfetch
+  fi
+}
+
+main "$@"

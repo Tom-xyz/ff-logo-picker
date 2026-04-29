@@ -93,26 +93,24 @@ apply_logo() {
   rm -f "$CONFIG.bak"
 }
 
-_fflogo_preview_color() {
-  fastfetch --logo "$1" --logo-type builtin 2>/dev/null
-}
-
-_fflogo_preview_mono() {
-  # Strip ANSI color codes from fastfetch output so the logo renders B/W.
-  # $'\x1b' inserts a literal ESC; sed sees ESC\[[0-9;]*m and removes it.
-  fastfetch --logo "$1" --logo-type builtin 2>/dev/null \
-    | sed $'s/\x1b\\[[0-9;]*m//g'
-}
-export -f _fflogo_preview_color _fflogo_preview_mono
-
 pick_with_fzf() {
+  # `c` toggles preview between color (default) and mono (ANSI stripped).
+  # State lives in a marker file unique to this fflogo invocation.
+  # Using printf for the ESC byte keeps the sed pattern POSIX-compatible
+  # so the preview works regardless of the user's $SHELL.
+  local esc marker preview_cmd toggle_cmd
+  esc=$(printf '\033')
+  marker="${TMPDIR:-/tmp}/.fflogo-mono-$$"
+  trap 'rm -f "$marker"' RETURN
+  preview_cmd="if [ -f '$marker' ]; then fastfetch --logo {} --logo-type builtin 2>/dev/null | sed 's/${esc}\\[[0-9;]*m//g'; else fastfetch --logo {} --logo-type builtin 2>/dev/null; fi"
+  toggle_cmd="if [ -f '$marker' ]; then rm -f '$marker'; else touch '$marker'; fi"
+
   list_logos \
     | fzf --ansi \
-          --preview '_fflogo_preview_color {}' \
+          --preview "$preview_cmd" \
           --preview-window=right:65%:wrap \
-          --bind 'ctrl-t:change-preview(_fflogo_preview_mono {})' \
-          --bind 'ctrl-r:change-preview(_fflogo_preview_color {})' \
-          --header 'ENTER apply  ·  ESC cancel  ·  ctrl-t mono  ·  ctrl-r color'
+          --bind "c:execute-silent($toggle_cmd)+refresh-preview" \
+          --header 'ENTER apply  ·  ESC cancel  ·  c toggle color/mono'
 }
 
 main() {
